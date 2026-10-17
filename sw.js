@@ -1,4 +1,4 @@
-const CACHE_NAME = 'catan-tabletop-v3';
+const CACHE_NAME = 'catan-tabletop-v4';
 const ASSETS = [
   './',
   './index.html',

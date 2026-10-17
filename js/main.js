@@ -17,10 +17,30 @@ window.addEventListener('DOMContentLoaded', () => {
   window.catanUI = ui;
 
   // 1. Warn before accidental browser reload/navigation during offline flight play
+  let allowUnload = false;
   window.addEventListener('beforeunload', e => {
+    if (allowUnload) return;
     e.preventDefault();
     e.returnValue = '';
   });
+
+  // Helper to force-refresh the installed iPad Home Screen PWA (clears SW cache while keeping saved game in localStorage)
+  window.forceRefreshApp = async () => {
+    allowUnload = true;
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister()));
+      }
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+    } catch (_) {}
+    const url = new URL(window.location.href);
+    url.searchParams.set('v', String(Date.now()));
+    window.location.replace(url.toString());
+  };
 
   // 2. Keep iPad Screen Awake (Screen Wake Lock API supported on iPadOS 16.4+)
   let wakeLockSentinel = null;
@@ -49,8 +69,18 @@ window.addEventListener('DOMContentLoaded', () => {
       location.hostname === 'localhost' ||
       location.hostname === '127.0.0.1')
   ) {
-    navigator.serviceWorker.register('./sw.js').catch(err => {
-      console.warn('Service worker registration skipped:', err);
-    });
+    navigator.serviceWorker
+      .register('./sw.js', { updateViaCache: 'none' })
+      .then(reg => {
+        reg.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            reg.update().catch(() => {});
+          }
+        });
+      })
+      .catch(err => {
+        console.warn('Service worker registration skipped:', err);
+      });
   }
 });

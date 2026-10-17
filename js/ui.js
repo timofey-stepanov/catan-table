@@ -1561,6 +1561,9 @@ export class CatanUI {
           <button type="button" class="btn-primary-action full-width" id="btn-start-game-confirm">
             🚀 Generate Island & Start Game
           </button>
+          <button type="button" class="btn-util full-width" id="btn-force-refresh-app" style="margin-top:8px; padding:9px;">
+            🔄 Force Refresh App (Fetch Latest Update, Keeps Current Game)
+          </button>
         </div>
       </div>
     `;
@@ -1581,6 +1584,14 @@ export class CatanUI {
 
     document.getElementById('btn-close-modal')?.addEventListener('click', () => {
       this.closeModals();
+    });
+
+    document.getElementById('btn-force-refresh-app')?.addEventListener('click', () => {
+      if (typeof window.forceRefreshApp === 'function') {
+        window.forceRefreshApp();
+      } else {
+        window.location.reload();
+      }
     });
 
     document.getElementById('btn-start-game-confirm')?.addEventListener('click', () => {
