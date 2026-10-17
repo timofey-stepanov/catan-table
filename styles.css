@@ -386,6 +386,8 @@ button, input, select {
 }
 
 .btn-peek {
+  position: relative;
+  overflow: hidden;
   flex: 1;
   background: rgba(51, 65, 85, 0.85);
   color: #e2e8f0;
@@ -395,6 +397,36 @@ button, input, select {
   font-size: 0.78rem;
   font-weight: 700;
   cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.btn-peek .peek-btn-label {
+  position: relative;
+  z-index: 1;
+}
+
+.btn-peek.charging-now {
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+
+.btn-peek.charging-now::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.75), rgba(56, 189, 248, 0.85));
+  animation: peekChargeFill 0.5s linear forwards;
+  z-index: 0;
+}
+
+@keyframes peekChargeFill {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
 }
 
 .btn-peek.peeking-now {
@@ -413,6 +445,10 @@ button, input, select {
   display: none;
 }
 
+.player-station.is-peeking {
+  z-index: 28;
+}
+
 .player-station .vp-secret {
   display: none;
 }
@@ -425,15 +461,60 @@ button, input, select {
   display: inline;
 }
 
-/* Private Hold-to-Peek Hand Drawer */
+/* Private Hold-to-Peek Hand Drawer (Floating Popover so button never shifts and drawer never opens under finger) */
 .peek-drawer {
-  background: rgba(2, 6, 23, 0.92);
-  border: 1.5px solid #60a5fa;
-  border-radius: 10px;
-  padding: 6px;
+  position: absolute;
+  z-index: 30;
+  background: rgba(2, 6, 23, 0.96);
+  border: 2px solid #60a5fa;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.75);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  pointer-events: none;
+}
+
+/* Bottom stations: pop UPWARD above the station card */
+.player-station.seat-bottom .peek-drawer,
+.player-station.seat-right .peek-drawer {
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+}
+
+/* Top-Left station (unrotated): pop to the RIGHT (inner side, away from finger) */
+.player-station.seat-left:not(.seat-rotated) .peek-drawer {
+  left: calc(100% + 10px);
+  top: 0;
+  width: 248px;
+}
+
+/* Top-Left station (rotated 180deg): pop to screen RIGHT & aligned with screen TOP */
+.player-station.seat-left.seat-rotated .peek-drawer {
+  right: calc(100% + 10px);
+  left: auto;
+  bottom: 0;
+  top: auto;
+  width: 248px;
+}
+
+/* Top-Right station (unrotated): pop to the LEFT (inner side, away from finger) */
+.player-station.seat-top:not(.seat-rotated) .peek-drawer {
+  right: calc(100% + 10px);
+  left: auto;
+  top: 0;
+  width: 248px;
+}
+
+/* Top-Right station (rotated 180deg): pop to screen LEFT & aligned with screen TOP */
+.player-station.seat-top.seat-rotated .peek-drawer {
+  left: calc(100% + 10px);
+  right: auto;
+  bottom: 0;
+  top: auto;
+  width: 248px;
 }
 
 .peek-res-row {
@@ -454,6 +535,22 @@ button, input, select {
 
 .peek-res-chip.zero {
   opacity: 0.38;
+}
+
+.peek-afford-row {
+  font-size: 0.72rem;
+  color: #bae6fd;
+  background: rgba(14, 165, 233, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  padding: 3px 6px;
+  text-align: center;
+}
+
+.peek-afford-row.muted {
+  color: var(--text-muted);
+  background: rgba(15, 23, 42, 0.6);
+  border-color: rgba(148, 163, 184, 0.15);
 }
 
 .peek-dev-list {
@@ -810,6 +907,93 @@ button, input, select {
 }
 
 /* =========================================================================
+   FLYING RESOURCE MINING & ROBBER STEAL TOKEN ANIMATIONS
+   ========================================================================= */
+
+.fx-flying-token {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0.35);
+  opacity: 0;
+  animation: fxTokenFly 0.78s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  will-change: transform, opacity;
+}
+
+.fx-token-inner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.94);
+  border: 2px solid #fde047;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.7), 0 0 18px rgba(250, 204, 21, 0.55);
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.fx-steal-token .fx-token-inner {
+  background: linear-gradient(135deg, #450a0a, #0f172a);
+  border-color: #f87171;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.8), 0 0 22px rgba(239, 68, 68, 0.65);
+  font-size: 1.35rem;
+  color: #fecaca;
+}
+
+@keyframes fxTokenFly {
+  0% {
+    transform: translate(-50%, -50%) scale(0.45);
+    opacity: 0;
+  }
+  18% {
+    transform: translate(
+        calc(-50% + var(--fx-dx, 0px) * 0.15),
+        calc(-50% + var(--fx-dy, 0px) * 0.15 - 18px)
+      )
+      scale(1.25);
+    opacity: 1;
+  }
+  82% {
+    transform: translate(
+        calc(-50% + var(--fx-dx, 0px) * 0.92),
+        calc(-50% + var(--fx-dy, 0px) * 0.92 - 6px)
+      )
+      scale(1.02);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(
+        calc(-50% + var(--fx-dx, 0px)),
+        calc(-50% + var(--fx-dy, 0px))
+      )
+      scale(0.55);
+    opacity: 0;
+  }
+}
+
+@keyframes fxCardLandedPulse {
+  0% {
+    transform: scale(1);
+  }
+  45% {
+    transform: scale(1.3);
+    border-color: #fde047;
+    box-shadow: 0 0 14px rgba(250, 204, 21, 0.75);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.metric-pill.fx-card-landed-pulse {
+  animation: fxCardLandedPulse 0.36s ease-out;
+}
+
+/* =========================================================================
    NON-BLOCKING TABLETOP TRADE COMPOSER
    ========================================================================= */
 
@@ -1049,8 +1233,19 @@ button, input, select {
   color: #fff;
 }
 
+.trade-proposer-error {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fca5a5;
+  background: rgba(127, 29, 29, 0.72);
+  border: 1px solid #f87171;
+  border-radius: 8px;
+  padding: 5px 10px;
+  text-align: center;
+}
+
 /* =========================================================================
-   BOTTOM ACTION BAR
+   BOTTOM ACTION BAR (FLIPS TO TOP IN TABLETOP MODE FOR TOP-SIDE PLAYERS)
    ========================================================================= */
 
 #action-bar {
@@ -1061,6 +1256,53 @@ button, input, select {
   align-items: center;
   justify-content: center;
   z-index: 20;
+}
+
+/* When Tabletop Mode is ON and a top-side player (seat-left / seat-top) is moving:
+   Move #action-bar to the top row and rotate 180deg toward them,
+   and move #top-bar to the bottom row rotated 180deg toward them. */
+#app-shell.tabletop-top-turn #action-bar {
+  grid-row: 1;
+  border-top: none;
+  border-bottom: 1px solid var(--border-subtle);
+  transform: rotate(180deg);
+}
+
+#app-shell.tabletop-top-turn #tabletop-stage {
+  grid-row: 2;
+}
+
+#app-shell.tabletop-top-turn #top-bar {
+  grid-row: 3;
+  border-bottom: none;
+  border-top: 1px solid var(--border-subtle);
+  transform: rotate(180deg);
+}
+
+#app-shell.tabletop-top-turn .trade-composer {
+  bottom: auto;
+  top: 8px;
+  transform: translateX(-50%) rotate(180deg);
+}
+
+@keyframes dicePopupEnterTop {
+  0% {
+    transform: rotate(180deg) scale(0.45) translateY(24px);
+    opacity: 0;
+  }
+  100% {
+    transform: rotate(180deg) scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+#app-shell.tabletop-top-turn .dice-popup-card:not(.folding-to-topbar) {
+  transform: rotate(180deg) scale(1);
+  animation: dicePopupEnterTop 0.28s cubic-bezier(0.18, 1.25, 0.4, 1);
+}
+
+#app-shell.tabletop-top-turn .modal-card {
+  transform: rotate(180deg);
 }
 
 .action-prompt-row,
@@ -1494,5 +1736,11 @@ button, input, select {
   .player-station {
     width: 215px;
     padding: 6px 8px;
+  }
+  .player-station.seat-left:not(.seat-rotated) .peek-drawer,
+  .player-station.seat-left.seat-rotated .peek-drawer,
+  .player-station.seat-top:not(.seat-rotated) .peek-drawer,
+  .player-station.seat-top.seat-rotated .peek-drawer {
+    width: 215px;
   }
 }

@@ -163,6 +163,7 @@ export class CatanGame {
       devCardPlayedThisTurn: false,
       buildMode: null, // null | 'road' | 'settlement' | 'city'
       lastRoll: null, // { d1, d2, sum }
+      lastFx: null, // { id, items: [{ fromHexId?, fromPlayerId?, toPlayerId, emoji, kind, delayMs }] }
       diceStats: { 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0 },
       discardState: {}, // { [playerId]: { required: number, selected: { wood..ore }, done: boolean } }
       stealCandidates: [], // [playerId]
@@ -185,6 +186,14 @@ export class CatanGame {
     };
 
     this.notify();
+  }
+
+  emitFx(items) {
+    if (!this.state || !items || items.length === 0) return;
+    this.state.lastFx = {
+      id: Date.now() + Math.random(),
+      items
+    };
   }
 
   createDiceShoe() {
@@ -400,12 +409,23 @@ export class CatanGame {
       if (isSecondRound) {
         // Grant starting resources for each adjacent non-desert hex
         const gained = [];
+        const fxItems = [];
         for (const hId of vertex.hexIds) {
           const hex = s.board.hexes[hId];
           if (hex.terrain !== 'desert' && RESOURCES[hex.terrain]) {
             player.resources[hex.terrain] += 1;
             gained.push(RESOURCES[hex.terrain].emoji);
+            fxItems.push({
+              fromHexId: hId,
+              toPlayerId: player.id,
+              emoji: RESOURCES[hex.terrain].emoji,
+              kind: 'mine',
+              delayMs: fxItems.length * 90
+            });
           }
+        }
+        if (fxItems.length > 0) {
+          this.emitFx(fxItems);
         }
         if (gained.length > 0) {
           this.addLog(`${player.emoji} ${player.name} placed 2nd 🏠 and received ${gained.join(' ')}`);
@@ -643,6 +663,16 @@ export class CatanGame {
     victim.resources[stolenKey] -= 1;
     thief.resources[stolenKey] += 1;
 
+    this.emitFx([
+      {
+        fromPlayerId: victim.id,
+        toPlayerId: thief.id,
+        emoji: '❓',
+        kind: 'steal',
+        delayMs: 0
+      }
+    ]);
+
     this.addLog(
       `🏴‍☠️ ${thief.emoji} ${thief.name} stole 1 random resource from ${victim.emoji} ${victim.name}.`
     );
@@ -728,6 +758,7 @@ export class CatanGame {
     } else {
       // Distribute resources for matching hexes without Robber
       const gainsByPlayer = {};
+      const fxItems = [];
       for (const h of s.board.hexes) {
         if (h.number === sum && !h.hasRobber && RESOURCES[h.terrain]) {
           const resKey = h.terrain;
@@ -740,9 +771,22 @@ export class CatanGame {
                 gainsByPlayer[b.owner] = {};
               }
               gainsByPlayer[b.owner][resKey] = (gainsByPlayer[b.owner][resKey] || 0) + amount;
+              for (let c = 0; c < amount; c++) {
+                fxItems.push({
+                  fromHexId: h.id,
+                  toPlayerId: b.owner,
+                  emoji: RESOURCES[resKey].emoji,
+                  kind: 'mine',
+                  delayMs: 180 + fxItems.length * 90
+                });
+              }
             }
           }
         }
+      }
+
+      if (fxItems.length > 0) {
+        this.emitFx(fxItems);
       }
 
       const summaryParts = [];
@@ -837,12 +881,58 @@ export class CatanGame {
 
   setBuildMode(mode) {
     const s = this.state;
-    if (s.phase !== 'MAIN_TURN') return;
-    s.buildMode = s.buildMode === mode ? null : mode;
+    if (s.phase !== 'MAIN_TURN') return false;
+    if (s.buildMode === mode) {
+      s.buildMode = null;
+      this.notify();
+      return true;
+    }
+
+    const player = this.getPlayer();
+    if (mode === 'road') {
+      if (!this.canAfford(player.id, BUILD_COSTS.road)) {
+        this.setBanner(`⚠️ Need 1🌲 1🧱 to build a Road`);
+        this.notify();
+        return false;
+      }
+      if (player.roadsLeft <= 0 || getValidRoadEdges(s.board, player.id, null).length === 0) {
+        this.setBanner(`⚠️ No valid connected edges or Road pieces left`);
+        this.notify();
+        return false;
+      }
+    } else if (mode === 'settlement') {
+      if (!this.canAfford(player.id, BUILD_COSTS.settlement)) {
+        this.setBanner(`⚠️ Need 1🌲 1🧱 1🐑 1🌾 to build a Settlement`);
+        this.notify();
+        return false;
+      }
+      if (
+        player.settlementsLeft <= 0 ||
+        getValidSettlementVertices(s.board, player.id, false).length === 0
+      ) {
+        this.setBanner(`⚠️ No valid connected vertex for a Settlement (check Distance Rule)`);
+        this.notify();
+        return false;
+      }
+    } else if (mode === 'city') {
+      if (!this.canAfford(player.id, BUILD_COSTS.city)) {
+        this.setBanner(`⚠️ Need 2🌾 3⛰️ to upgrade to a City`);
+        this.notify();
+        return false;
+      }
+      if (player.citiesLeft <= 0 || getValidCityVertices(s.board, player.id).length === 0) {
+        this.setBanner(`⚠️ Need an existing Settlement on the board to upgrade to a City`);
+        this.notify();
+        return false;
+      }
+    }
+
+    s.buildMode = mode;
     if (s.buildMode) {
       s.activeTrade.isOpen = false;
     }
     this.notify();
+    return true;
   }
 
   buyDevCard() {
@@ -856,6 +946,8 @@ export class CatanGame {
       return false;
     }
     if (!this.canAfford(player.id, BUILD_COSTS.devCard)) {
+      this.setBanner(`⚠️ Need 1🐑 1🌾 1⛰️ to buy a Development Card`);
+      this.notify();
       return false;
     }
 
@@ -980,6 +1072,7 @@ export class CatanGame {
     s.devCardPlayedThisTurn = true;
 
     let totalClaimed = 0;
+    const fxItems = [];
     for (const p of s.players) {
       if (p.id === player.id) continue;
       const count = p.resources[targetResKey] || 0;
@@ -987,7 +1080,19 @@ export class CatanGame {
         p.resources[targetResKey] = 0;
         player.resources[targetResKey] += count;
         totalClaimed += count;
+        for (let c = 0; c < Math.min(count, 4); c++) {
+          fxItems.push({
+            fromPlayerId: p.id,
+            toPlayerId: player.id,
+            emoji: RESOURCES[targetResKey].emoji,
+            kind: 'mine',
+            delayMs: fxItems.length * 80
+          });
+        }
       }
+    }
+    if (fxItems.length > 0) {
+      this.emitFx(fxItems);
     }
 
     const resEmoji = RESOURCES[targetResKey].emoji;
@@ -1016,7 +1121,8 @@ export class CatanGame {
       want: { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 },
       targetPlayerId: 'all',
       passedPlayerIds: [],
-      edgeErrorByPlayer: {}
+      edgeErrorByPlayer: {},
+      proposerError: ''
     };
     if (nextOpen) {
       s.buildMode = null;
@@ -1027,18 +1133,16 @@ export class CatanGame {
   adjustTradeAmount(side, resKey, delta) {
     const s = this.state;
     if (!s.activeTrade.isOpen) return;
-    const player = this.getPlayer();
     const bucket = side === 'give' ? s.activeTrade.give : s.activeTrade.want;
     const nextVal = (bucket[resKey] || 0) + delta;
 
-    if (nextVal < 0) return;
-    if (side === 'give' && nextVal > player.resources[resKey]) return;
-    if (side === 'want' && nextVal > 19) return;
+    // Allow 0..19 on both sides so + button state never leaks the active player's secret hand
+    if (nextVal < 0 || nextVal > 19) return;
 
     bucket[resKey] = nextVal;
-    // Reset passed status & edge errors when trade terms change
     s.activeTrade.passedPlayerIds = [];
     s.activeTrade.edgeErrorByPlayer = {};
+    s.activeTrade.proposerError = '';
     this.notify();
   }
 
@@ -1048,6 +1152,7 @@ export class CatanGame {
     s.activeTrade.targetPlayerId = targetId;
     s.activeTrade.passedPlayerIds = [];
     s.activeTrade.edgeErrorByPlayer = {};
+    s.activeTrade.proposerError = '';
     this.notify();
   }
 
@@ -1057,6 +1162,7 @@ export class CatanGame {
     s.activeTrade.want = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
     s.activeTrade.passedPlayerIds = [];
     s.activeTrade.edgeErrorByPlayer = {};
+    s.activeTrade.proposerError = '';
     this.notify();
   }
 
@@ -1120,6 +1226,12 @@ export class CatanGame {
     const player = this.getPlayer();
     const { give, want } = s.activeTrade;
 
+    if (!this.canAfford(player.id, give)) {
+      s.activeTrade.proposerError = '⚠️ You do not have enough of the offered resources!';
+      this.notify();
+      return false;
+    }
+
     this.pushUndoSnapshot(`${player.name} Maritime Trade`);
     const giveParts = [];
     const wantParts = [];
@@ -1178,6 +1290,9 @@ export class CatanGame {
 
     // Verify activePlayer has `give` and partner has `want`
     if (!this.canAfford(activePlayer.id, give)) {
+      s.activeTrade.proposerError = '⚠️ You do not have the offered resources!';
+      s.activeTrade.edgeErrorByPlayer[partnerId] = `${activePlayer.name} lacks offered cards!`;
+      this.notify();
       return false;
     }
     if (!this.canAfford(partner.id, want)) {

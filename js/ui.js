@@ -18,12 +18,15 @@ export class CatanUI {
   constructor(game) {
     this.game = game;
     this.peekingPlayers = new Set();
+    this.chargingPlayers = new Set();
+    this.peekTimers = new Map();
     // Active dev card sub-modal state (for Year of Plenty or Monopoly resource selection)
     this.devCardModalOpen = false;
     this.pendingDevCardAction = null; // { cardId, type: 'yearOfPlenty' | 'monopoly', picked: [] }
     this.statsModalOpen = false;
     this.setupModalOpen = false;
 
+    this.appShellEl = document.getElementById('app-shell');
     this.boardSvg = document.getElementById('catan-board-svg');
     this.bannerEl = document.getElementById('turn-banner');
     this.diceDisplayEl = document.getElementById('dice-display');
@@ -35,19 +38,53 @@ export class CatanUI {
     this.modalContentEl = document.getElementById('modal-content');
 
     this.lastSeenRollId = undefined;
+    this.lastSeenFxId = undefined;
     this.dicePopupTimers = [];
 
     this.bindGlobalEvents();
     this.game.subscribe(() => this.render());
   }
 
+  cancelPeekForPlayer(pid) {
+    let changed = false;
+    if (this.peekTimers.has(pid)) {
+      clearTimeout(this.peekTimers.get(pid));
+      this.peekTimers.delete(pid);
+    }
+    if (this.chargingPlayers.has(pid)) {
+      this.chargingPlayers.delete(pid);
+      changed = true;
+    }
+    if (this.peekingPlayers.has(pid)) {
+      this.peekingPlayers.delete(pid);
+      changed = true;
+    }
+    if (changed) {
+      this.syncPeekClasses();
+    }
+  }
+
+  cancelAllPeeks() {
+    let changed = false;
+    for (const timerId of this.peekTimers.values()) {
+      clearTimeout(timerId);
+    }
+    this.peekTimers.clear();
+    if (this.chargingPlayers.size > 0) {
+      this.chargingPlayers.clear();
+      changed = true;
+    }
+    if (this.peekingPlayers.size > 0) {
+      this.peekingPlayers.clear();
+      changed = true;
+    }
+    if (changed) {
+      this.syncPeekClasses();
+    }
+  }
+
   bindGlobalEvents() {
-    const endAllPeeks = () => {
-      if (this.peekingPlayers.size > 0) {
-        this.peekingPlayers.clear();
-        this.syncPeekClasses();
-      }
-    };
+    const endAllPeeks = () => this.cancelAllPeeks();
 
     window.addEventListener('pointerup', endAllPeeks);
     window.addEventListener('pointercancel', endAllPeeks);
@@ -89,11 +126,24 @@ export class CatanUI {
     this.stationsContainerEl.querySelectorAll('.player-station').forEach(station => {
       const pid = Number(station.dataset.stationPlayer);
       const isPeeking = this.peekingPlayers.has(pid);
+      const isCharging = this.chargingPlayers.has(pid);
       station.classList.toggle('is-peeking', isPeeking);
+      station.classList.toggle('is-charging-peek', isCharging);
       const btn = station.querySelector('[data-peek-player]');
       if (btn) {
         btn.classList.toggle('peeking-now', isPeeking);
-        btn.textContent = isPeeking ? '🙈 Release to Hide' : '👁️ Hold to Peek Hand';
+        btn.classList.toggle('charging-now', isCharging);
+        const labelEl = btn.querySelector('.peek-btn-label');
+        const text = isPeeking
+          ? '🙈 Release to Hide'
+          : isCharging
+          ? '⏳ Keep Holding...'
+          : '👁️ Hold to Peek Hand';
+        if (labelEl) {
+          labelEl.textContent = text;
+        } else {
+          btn.innerHTML = `<span class="peek-btn-label">${text}</span>`;
+        }
       }
     });
   }
@@ -106,9 +156,21 @@ export class CatanUI {
     this.renderModal();
   }
 
+  isTopSideActiveTurn() {
+    const s = this.game.state;
+    if (!s || !s.settings.rotateEdgeCards) return false;
+    const activePlayer = this.game.getPlayer();
+    return activePlayer.seat === 'left' || activePlayer.seat === 'top';
+  }
+
   render() {
     const s = this.game.state;
     if (!s) return;
+
+    // Flip active controls to top side & rotate 180deg when a top-side player is moving in Tabletop mode
+    if (this.appShellEl) {
+      this.appShellEl.classList.toggle('tabletop-top-turn', this.isTopSideActiveTurn());
+    }
 
     // Update top utility bar buttons
     const undoBtn = document.getElementById('btn-undo');
@@ -127,6 +189,89 @@ export class CatanUI {
     this.renderTradeComposer();
     this.renderActionBar();
     this.renderModal();
+    this.maybeTriggerFxAnimation(s);
+  }
+
+  maybeTriggerFxAnimation(s) {
+    const currentFxId = s.lastFx ? s.lastFx.id : null;
+    const isNewFx =
+      this.lastSeenFxId !== undefined &&
+      s.lastFx &&
+      currentFxId !== this.lastSeenFxId;
+    this.lastSeenFxId = currentFxId;
+
+    if (!isNewFx || !s.lastFx || !Array.isArray(s.lastFx.items)) return;
+
+    for (const item of s.lastFx.items) {
+      this.spawnFlyingToken(item);
+    }
+  }
+
+  spawnFlyingToken(item) {
+    let sourceEl = null;
+    if (item.fromHexId !== undefined && this.boardSvg) {
+      sourceEl =
+        this.boardSvg.querySelector(`[data-hex-id="${item.fromHexId}"] polygon`) ||
+        this.boardSvg.querySelector(`[data-hex-id="${item.fromHexId}"]`);
+    } else if (item.fromPlayerId !== undefined && this.stationsContainerEl) {
+      sourceEl =
+        this.stationsContainerEl.querySelector(
+          `[data-station-player="${item.fromPlayerId}"] .metric-pill`
+        ) ||
+        this.stationsContainerEl.querySelector(`[data-station-player="${item.fromPlayerId}"]`);
+    }
+
+    let targetEl = null;
+    if (item.toPlayerId !== undefined && this.stationsContainerEl) {
+      targetEl =
+        this.stationsContainerEl.querySelector(
+          `[data-station-player="${item.toPlayerId}"] .metric-pill`
+        ) ||
+        this.stationsContainerEl.querySelector(`[data-station-player="${item.toPlayerId}"]`);
+    }
+
+    if (!sourceEl || !targetEl) return;
+
+    const srcRect = sourceEl.getBoundingClientRect();
+    const dstRect = targetEl.getBoundingClientRect();
+
+    const startX = Math.round(srcRect.left + srcRect.width / 2);
+    const startY = Math.round(srcRect.top + srcRect.height / 2);
+    const endX = Math.round(dstRect.left + dstRect.width / 2);
+    const endY = Math.round(dstRect.top + dstRect.height / 2);
+
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const delayMs = item.delayMs || 0;
+    const isSteal = item.kind === 'steal';
+
+    const tokenEl = document.createElement('div');
+    tokenEl.className = `fx-flying-token ${isSteal ? 'fx-steal-token' : 'fx-mine-token'}`;
+    tokenEl.style.left = `${startX}px`;
+    tokenEl.style.top = `${startY}px`;
+    tokenEl.style.setProperty('--fx-dx', `${dx}px`);
+    tokenEl.style.setProperty('--fx-dy', `${dy}px`);
+    tokenEl.style.animationDelay = `${delayMs}ms`;
+    tokenEl.innerHTML = `<span class="fx-token-inner">${isSteal ? '🃏❓' : item.emoji}</span>`;
+
+    document.body.appendChild(tokenEl);
+
+    setTimeout(() => {
+      if (this.stationsContainerEl) {
+        const pill = this.stationsContainerEl.querySelector(
+          `[data-station-player="${item.toPlayerId}"] .metric-pill`
+        );
+        if (pill) {
+          pill.classList.remove('fx-card-landed-pulse');
+          void pill.offsetWidth;
+          pill.classList.add('fx-card-landed-pulse');
+        }
+      }
+    }, delayMs + 740);
+
+    setTimeout(() => {
+      tokenEl.remove();
+    }, delayMs + 850);
   }
 
   renderBannerAndDice() {
@@ -287,6 +432,7 @@ export class CatanUI {
     }
 
     const parts = [];
+    const flipText = this.isTopSideActiveTurn();
 
     // 0. Ocean backdrop island silhouette
     parts.push(`
@@ -315,9 +461,11 @@ export class CatanUI {
         <g class="harbor-group">
           <line x1="${v1.x}" y1="${v1.y}" x2="${h.x}" y2="${h.y}" stroke="#d97706" stroke-width="4" stroke-dasharray="4,3" stroke-linecap="round" />
           <line x1="${v2.x}" y1="${v2.y}" x2="${h.x}" y2="${h.y}" stroke="#d97706" stroke-width="4" stroke-dasharray="4,3" stroke-linecap="round" />
-          <circle cx="${h.x}" cy="${h.y}" r="18" fill="${portBg}" stroke="${portBorder}" stroke-width="2" filter="url(#dropShadow)" />
-          <text x="${h.x}" y="${h.y - 3}" text-anchor="middle" dominant-baseline="central" font-size="13">${h.emoji}</text>
-          <text x="${h.x}" y="${h.y + 10}" text-anchor="middle" dominant-baseline="central" font-size="8.5" font-weight="800" fill="#ffffff">${h.label}</text>
+          <g ${flipText ? `transform="rotate(180, ${h.x}, ${h.y})"` : ''}>
+            <circle cx="${h.x}" cy="${h.y}" r="18" fill="${portBg}" stroke="${portBorder}" stroke-width="2" filter="url(#dropShadow)" />
+            <text x="${h.x}" y="${h.y - 3}" text-anchor="middle" dominant-baseline="central" font-size="13">${h.emoji}</text>
+            <text x="${h.x}" y="${h.y + 10}" text-anchor="middle" dominant-baseline="central" font-size="8.5" font-weight="800" fill="#ffffff">${h.label}</text>
+          </g>
         </g>
       `);
     }
@@ -349,7 +497,8 @@ export class CatanUI {
             stroke-width="${isLastRolledHex ? '4.5' : '3'}"
             stroke-linejoin="round"
           />
-          <text x="${hex.x}" y="${hex.number ? hex.y - 22 : hex.y - 8}" text-anchor="middle" dominant-baseline="central" font-size="22" class="hex-emoji">${info.emoji}</text>
+          <g ${flipText ? `transform="rotate(180, ${hex.x}, ${hex.y})"` : ''}>
+            <text x="${hex.x}" y="${hex.number ? hex.y - 22 : hex.y - 8}" text-anchor="middle" dominant-baseline="central" font-size="22" class="hex-emoji">${info.emoji}</text>
       `);
 
       // Number Token
@@ -359,9 +508,9 @@ export class CatanUI {
         const pipsStr = '•'.repeat(pipsCount);
 
         parts.push(`
-          <circle cx="${hex.x}" cy="${hex.y + 8}" r="16.5" fill="#fffbeb" stroke="${isRed ? '#dc2626' : '#b45309'}" stroke-width="${isRed ? '2.2' : '1.5'}" filter="url(#dropShadow)" />
-          <text x="${hex.x}" y="${hex.y + 5}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="900" fill="${isRed ? '#dc2626' : '#1e293b'}">${hex.number}</text>
-          <text x="${hex.x}" y="${hex.y + 17}" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="900" letter-spacing="0.5" fill="${isRed ? '#dc2626' : '#64748b'}">${pipsStr}</text>
+            <circle cx="${hex.x}" cy="${hex.y + 8}" r="16.5" fill="#fffbeb" stroke="${isRed ? '#dc2626' : '#b45309'}" stroke-width="${isRed ? '2.2' : '1.5'}" filter="url(#dropShadow)" />
+            <text x="${hex.x}" y="${hex.y + 5}" text-anchor="middle" dominant-baseline="central" font-size="14" font-weight="900" fill="${isRed ? '#dc2626' : '#1e293b'}">${hex.number}</text>
+            <text x="${hex.x}" y="${hex.y + 17}" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="900" letter-spacing="0.5" fill="${isRed ? '#dc2626' : '#64748b'}">${pipsStr}</text>
         `);
       }
 
@@ -370,12 +519,14 @@ export class CatanUI {
         const rx = hex.number ? hex.x + 22 : hex.x;
         const ry = hex.number ? hex.y - 18 : hex.y + 14;
         parts.push(`
-          <g class="robber-badge" filter="url(#dropShadow)">
-            <circle cx="${rx}" cy="${ry}" r="14" fill="#111827" stroke="#f87171" stroke-width="2" />
-            <text x="${rx}" y="${ry + 1}" text-anchor="middle" dominant-baseline="central" font-size="15">🏴‍☠️</text>
-          </g>
+            <g class="robber-badge" filter="url(#dropShadow)">
+              <circle cx="${rx}" cy="${ry}" r="14" fill="#111827" stroke="#f87171" stroke-width="2" />
+              <text x="${rx}" y="${ry + 1}" text-anchor="middle" dominant-baseline="central" font-size="15">🏴‍☠️</text>
+            </g>
         `);
       }
+
+      parts.push(`</g>`);
 
       // Interactive Robber Placement Overlay
       if (isClickableHex) {
@@ -422,7 +573,7 @@ export class CatanUI {
         parts.push(`
           <g class="vertex-built ${isSelectable ? 'vertex-selectable' : ''}" ${isSelectable ? `data-vertex-id="${v.id}"` : ''} filter="url(#dropShadow)">
             <circle cx="${v.x}" cy="${v.y}" r="${radius}" fill="${owner.color}" stroke="${strokeColor}" stroke-width="${strokeWidth}" />
-            <text x="${v.x}" y="${v.y + 1}" text-anchor="middle" dominant-baseline="central" font-size="${isCity ? '16' : '13'}">${emoji}</text>
+            <text x="${v.x}" y="${v.y + 1}" ${flipText ? `transform="rotate(180, ${v.x}, ${v.y})"` : ''} text-anchor="middle" dominant-baseline="central" font-size="${isCity ? '16' : '13'}">${emoji}</text>
             ${
               isSelectable
                 ? `<circle cx="${v.x}" cy="${v.y}" r="20" fill="none" stroke="#fde047" stroke-width="2.5" stroke-dasharray="4,3" class="pulse-target" />`
@@ -481,6 +632,7 @@ export class CatanUI {
       .map(p => {
         const isCurrentTurn = p.id === s.currentPlayerId;
         const isPeeking = this.peekingPlayers.has(p.id);
+        const isCharging = this.chargingPlayers.has(p.id);
         const publicVp = this.game.getVictoryPoints(p.id, false);
         const secretVp = this.game.getVictoryPoints(p.id, true);
         const totalRes = this.game.getTotalResources(p);
@@ -503,7 +655,12 @@ export class CatanUI {
         const hasPassedTrade = s.activeTrade.passedPlayerIds.includes(p.id);
         const edgeError = s.activeTrade.edgeErrorByPlayer[p.id] || '';
 
-        const seatClass = `seat-${p.seat} ${rotate ? 'seat-rotated' : ''} ${isPeeking ? 'is-peeking' : ''}`;
+        const seatClass = `seat-${p.seat} ${rotate ? 'seat-rotated' : ''} ${isPeeking ? 'is-peeking' : ''} ${isCharging ? 'is-charging-peek' : ''}`;
+        const peekText = isPeeking
+          ? '🙈 Release to Hide'
+          : isCharging
+          ? '⏳ Keep Holding...'
+          : '👁️ Hold to Peek Hand';
 
         return `
           <div class="player-station ${seatClass} ${isCurrentTurn ? 'active-station' : ''}" data-station-player="${p.id}" style="--player-color: ${p.color}; --player-dark: ${p.darkColor}">
@@ -551,10 +708,10 @@ export class CatanUI {
             <div class="station-footer">
               <button
                 type="button"
-                class="btn-peek ${isPeeking ? 'peeking-now' : ''}"
+                class="btn-peek ${isPeeking ? 'peeking-now' : ''} ${isCharging ? 'charging-now' : ''}"
                 data-peek-player="${p.id}"
               >
-                ${isPeeking ? '🙈 Release to Hide' : '👁️ Hold to Peek Hand'}
+                <span class="peek-btn-label">${peekText}</span>
               </button>
               <span class="pieces-left" title="Remaining pieces: Roads / Settlements / Cities">
                 🛣️${p.roadsLeft} 🏠${p.settlementsLeft} 🏛️${p.citiesLeft}
@@ -565,7 +722,8 @@ export class CatanUI {
       })
       .join('');
 
-    // Bind Hold-to-Peek pointerdown & touchstart without destroying DOM
+    // Bind Hold-to-Peek pointerdown & touchstart with 500ms hold delay to prevent accidental taps
+    const PEEK_HOLD_DELAY_MS = 500;
     this.stationsContainerEl.querySelectorAll('[data-peek-player]').forEach(btn => {
       const startPeek = e => {
         e.preventDefault();
@@ -575,15 +733,25 @@ export class CatanUI {
           } catch (_) {}
         }
         const pid = Number(btn.dataset.peekPlayer);
-        this.peekingPlayers.add(pid);
+        if (this.peekingPlayers.has(pid) || this.chargingPlayers.has(pid)) return;
+
+        this.chargingPlayers.add(pid);
         this.syncPeekClasses();
+
+        const timerId = setTimeout(() => {
+          this.peekTimers.delete(pid);
+          if (this.chargingPlayers.has(pid)) {
+            this.chargingPlayers.delete(pid);
+            this.peekingPlayers.add(pid);
+            this.syncPeekClasses();
+          }
+        }, PEEK_HOLD_DELAY_MS);
+
+        this.peekTimers.set(pid, timerId);
       };
       const endPeek = () => {
         const pid = Number(btn.dataset.peekPlayer);
-        if (this.peekingPlayers.has(pid)) {
-          this.peekingPlayers.delete(pid);
-          this.syncPeekClasses();
-        }
+        this.cancelPeekForPlayer(pid);
       };
       btn.addEventListener('pointerdown', startPeek);
       btn.addEventListener('pointerup', endPeek);
@@ -631,7 +799,7 @@ export class CatanUI {
     });
   }
 
-  renderPeekDrawer(player, isCurrentTurn) {
+  renderPeekDrawer(player) {
     const resItems = RESOURCE_KEYS.map(k => {
       const count = player.resources[k] || 0;
       return `
@@ -641,6 +809,25 @@ export class CatanUI {
         </div>
       `;
     }).join('');
+
+    // Private build affordability summary (only visible while holding Peek!)
+    const affordable = [];
+    if (this.game.canAfford(player.id, BUILD_COSTS.road) && player.roadsLeft > 0) {
+      affordable.push('🛣️ Road');
+    }
+    if (this.game.canAfford(player.id, BUILD_COSTS.settlement) && player.settlementsLeft > 0) {
+      affordable.push('🏠 Settle');
+    }
+    if (this.game.canAfford(player.id, BUILD_COSTS.city) && player.citiesLeft > 0) {
+      affordable.push('🏛️ City');
+    }
+    if (this.game.canAfford(player.id, BUILD_COSTS.devCard) && this.game.state.devDeck.length > 0) {
+      affordable.push('📜 Dev');
+    }
+    const affordHtml =
+      affordable.length > 0
+        ? `<div class="peek-afford-row">Can afford: <strong>${affordable.join(' · ')}</strong></div>`
+        : `<div class="peek-afford-row muted">Cannot afford builds yet</div>`;
 
     let devSection = '';
     if (player.devCards.length > 0) {
@@ -659,6 +846,7 @@ export class CatanUI {
     return `
       <div class="peek-drawer">
         <div class="peek-res-row">${resItems}</div>
+        ${affordHtml}
         ${devSection}
       </div>
     `;
@@ -759,13 +947,13 @@ export class CatanUI {
 
     this.tradeComposerEl.classList.remove('hidden');
     const player = this.game.getPlayer();
-    const { give, want, targetPlayerId } = s.activeTrade;
+    const { give, want, targetPlayerId, proposerError } = s.activeTrade;
     const { rates } = this.game.getPlayerHarborRates(player.id);
     const bankEval = this.game.evaluateBankTrade();
     const isPlayerReady = this.game.isPlayerTradeOfferReady();
 
+    // Note: Do NOT display "Have: X" or disable "+" based on secret hand resources!
     const giveRow = RESOURCE_KEYS.map(k => {
-      const have = player.resources[k];
       const val = give[k];
       const portRate = rates[k];
       return `
@@ -774,11 +962,11 @@ export class CatanUI {
             <span class="trade-emoji">${RESOURCES[k].emoji}</span>
             <span class="trade-port-tag">${portRate}:1</span>
           </div>
-          <div class="trade-have">Have: ${have}</div>
+          <div class="trade-have">${RESOURCES[k].name}</div>
           <div class="trade-stepper">
             <button type="button" data-trade-side="give" data-res="${k}" data-delta="-1" ${val <= 0 ? 'disabled' : ''}>−</button>
             <span class="trade-val ${val > 0 ? 'active-val' : ''}">${val}</span>
-            <button type="button" data-trade-side="give" data-res="${k}" data-delta="1" ${val >= have ? 'disabled' : ''}>+</button>
+            <button type="button" data-trade-side="give" data-res="${k}" data-delta="1">+</button>
           </div>
         </div>
       `;
@@ -820,7 +1008,9 @@ export class CatanUI {
           <strong>🤝 Tabletop Trade</strong>
           <span class="trade-hint">
             ${
-              isPlayerReady
+              proposerError
+                ? `<span class="trade-proposer-error">${this.escapeHtml(proposerError)}</span>`
+                : isPlayerReady
                 ? '🟢 Live on player edge cards! Partner taps ✅ Accept on their edge.'
                 : 'Select resources below — or match your port rate for a 1-tap Bank Trade.'
             }
@@ -897,7 +1087,7 @@ export class CatanUI {
   }
 
   // =========================================================================
-  // BOTTOM ACTION DOCK
+  // ACTIVE TURN ACTION DOCK (FLIPS TO TOP IN TABLETOP MODE FOR TOP PLAYERS)
   // =========================================================================
 
   renderActionBar() {
@@ -934,17 +1124,14 @@ export class CatanUI {
     }
 
     if (s.phase === 'PRE_ROLL') {
-      const playableDevs = player.devCards.filter(c =>
-        this.game.canPlayDevCard(player.id, c)
-      );
       this.actionBarEl.innerHTML = `
         <div class="action-dock-row">
           <button type="button" class="btn-roll-dice" id="btn-roll-dice">
             🎲 Roll Dice (${player.emoji} ${this.escapeHtml(player.name)})
           </button>
           ${
-            playableDevs.length > 0
-              ? `<button type="button" class="btn-dock" id="btn-open-devs">🃏 Play Dev Card (${playableDevs.length})</button>`
+            player.devCards.length > 0
+              ? `<button type="button" class="btn-dock" id="btn-open-devs">🃏 Dev Cards (${player.devCards.length})</button>`
               : ''
           }
         </div>
@@ -1022,36 +1209,14 @@ export class CatanUI {
       return;
     }
 
-    // MAIN_TURN
-    const canRoad =
-      this.game.canAfford(player.id, BUILD_COSTS.road) &&
-      player.roadsLeft > 0 &&
-      getValidRoadEdges(s.board, player.id, null).length > 0;
-
-    const canSettle =
-      this.game.canAfford(player.id, BUILD_COSTS.settlement) &&
-      player.settlementsLeft > 0 &&
-      getValidSettlementVertices(s.board, player.id, false).length > 0;
-
-    const canCity =
-      this.game.canAfford(player.id, BUILD_COSTS.city) &&
-      player.citiesLeft > 0 &&
-      getValidCityVertices(s.board, player.id).length > 0;
-
-    const canBuyDev =
-      this.game.canAfford(player.id, BUILD_COSTS.devCard) && s.devDeck.length > 0;
-
-    const playableDevs = player.devCards.filter(c =>
-      this.game.canPlayDevCard(player.id, c)
-    );
-
+    // MAIN_TURN: Buttons are ALWAYS enabled (except when public Dev Deck / public Dev Card count is 0)
+    // so opponents can never deduce what resources or Dev Card types the active player holds!
     this.actionBarEl.innerHTML = `
       <div class="action-dock-row">
         <button
           type="button"
           class="btn-dock ${s.buildMode === 'road' ? 'active-mode' : ''}"
           id="btn-build-road"
-          ${!canRoad ? 'disabled' : ''}
         >
           <span class="dock-main">🛣️ Road</span>
           <span class="dock-cost">1🌲 1🧱</span>
@@ -1061,7 +1226,6 @@ export class CatanUI {
           type="button"
           class="btn-dock ${s.buildMode === 'settlement' ? 'active-mode' : ''}"
           id="btn-build-settlement"
-          ${!canSettle ? 'disabled' : ''}
         >
           <span class="dock-main">🏠 Settle</span>
           <span class="dock-cost">1🌲1🧱1🐑1🌾</span>
@@ -1071,7 +1235,6 @@ export class CatanUI {
           type="button"
           class="btn-dock ${s.buildMode === 'city' ? 'active-mode' : ''}"
           id="btn-build-city"
-          ${!canCity ? 'disabled' : ''}
         >
           <span class="dock-main">🏛️ City</span>
           <span class="dock-cost">2🌾 3⛰️</span>
@@ -1081,7 +1244,7 @@ export class CatanUI {
           type="button"
           class="btn-dock"
           id="btn-buy-dev"
-          ${!canBuyDev ? 'disabled' : ''}
+          ${s.devDeck.length === 0 ? 'disabled' : ''}
         >
           <span class="dock-main">📜 Buy Dev (${s.devDeck.length})</span>
           <span class="dock-cost">1🐑 1🌾 1⛰️</span>
@@ -1089,12 +1252,12 @@ export class CatanUI {
 
         <button
           type="button"
-          class="btn-dock ${playableDevs.length > 0 ? 'glow-dev' : ''}"
+          class="btn-dock"
           id="btn-open-devs"
           ${player.devCards.length === 0 ? 'disabled' : ''}
         >
           <span class="dock-main">🃏 Dev Cards (${player.devCards.length})</span>
-          <span class="dock-cost">${playableDevs.length > 0 ? `${playableDevs.length} Ready` : 'View / Play'}</span>
+          <span class="dock-cost">View / Play</span>
         </button>
 
         <button
