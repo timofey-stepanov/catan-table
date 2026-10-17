@@ -27,11 +27,15 @@ export class CatanUI {
     this.boardSvg = document.getElementById('catan-board-svg');
     this.bannerEl = document.getElementById('turn-banner');
     this.diceDisplayEl = document.getElementById('dice-display');
+    this.dicePopupLayerEl = document.getElementById('dice-popup-layer');
     this.actionBarEl = document.getElementById('action-bar');
     this.tradeComposerEl = document.getElementById('trade-composer');
     this.stationsContainerEl = document.getElementById('player-stations');
     this.modalOverlayEl = document.getElementById('modal-overlay');
     this.modalContentEl = document.getElementById('modal-content');
+
+    this.lastSeenRollId = undefined;
+    this.dicePopupTimers = [];
 
     this.bindGlobalEvents();
     this.game.subscribe(() => this.render());
@@ -136,20 +140,114 @@ export class CatanUI {
       <span class="banner-text">${this.escapeHtml(s.bannerMessage)}</span>
     `;
 
+    const currentRollId = s.lastRoll ? s.lastRoll.id ?? `${s.turnNumber}-${s.lastRoll.sum}` : null;
+    const isNewRoll =
+      this.lastSeenRollId !== undefined &&
+      s.lastRoll &&
+      currentRollId !== this.lastSeenRollId;
+    this.lastSeenRollId = currentRollId;
+
     if (s.lastRoll) {
       const dieFaces = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
       const isRed = s.lastRoll.sum === 6 || s.lastRoll.sum === 8;
       const isSeven = s.lastRoll.sum === 7;
       this.diceDisplayEl.innerHTML = `
-        <div class="dice-badge ${isRed ? 'hot-roll' : ''} ${isSeven ? 'robber-roll' : ''}" title="Last Dice Roll">
+        <div class="dice-badge ${isRed ? 'hot-roll' : ''} ${isSeven ? 'robber-roll' : ''}" id="top-dice-badge" title="Last Dice Roll">
           <span class="die-face">${dieFaces[s.lastRoll.d1]}</span>
           <span class="die-face">${dieFaces[s.lastRoll.d2]}</span>
           <strong class="dice-sum">${s.lastRoll.sum}</strong>
         </div>
       `;
+      if (isNewRoll) {
+        this.playCenterDiceAnimation(s.lastRoll);
+      }
     } else {
-      this.diceDisplayEl.innerHTML = `<div class="dice-badge empty-roll">🎲 —</div>`;
+      this.diceDisplayEl.innerHTML = `<div class="dice-badge empty-roll" id="top-dice-badge">🎲 —</div>`;
     }
+  }
+
+  playCenterDiceAnimation(roll) {
+    if (!this.dicePopupLayerEl) return;
+    this.dicePopupTimers.forEach(t => clearTimeout(t));
+    this.dicePopupTimers = [];
+
+    const dieFaces = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+    const isRed = roll.sum === 6 || roll.sum === 8;
+    const isSeven = roll.sum === 7;
+    const rollerLabel = roll.rollerName
+      ? `${roll.rollerEmoji || '🎲'} ${this.escapeHtml(roll.rollerName)} Rolled`
+      : '🎲 Dice Roll';
+    const payoutLabel = roll.payoutText || '';
+
+    this.dicePopupLayerEl.classList.remove('hidden');
+    this.dicePopupLayerEl.innerHTML = `
+      <div class="dice-popup-card ${isRed ? 'popup-hot' : ''} ${isSeven ? 'popup-seven' : ''}" id="active-dice-popup-card">
+        <div class="dice-popup-roller">${rollerLabel}</div>
+        <div class="dice-popup-row">
+          <div class="big-die-box die-tumble-1">
+            <span class="big-die-glyph">${dieFaces[roll.d1]}</span>
+            <span class="big-die-num">${roll.d1}</span>
+          </div>
+          <span class="big-die-plus">+</span>
+          <div class="big-die-box die-tumble-2">
+            <span class="big-die-glyph">${dieFaces[roll.d2]}</span>
+            <span class="big-die-num">${roll.d2}</span>
+          </div>
+          <span class="big-die-equals">=</span>
+          <div class="big-sum-circle">
+            <span>${roll.sum}</span>
+          </div>
+        </div>
+        ${
+          payoutLabel
+            ? `<div class="dice-popup-payout">${this.escapeHtml(payoutLabel)}</div>`
+            : ''
+        }
+      </div>
+    `;
+
+    const foldToTopBar = () => {
+      this.dicePopupTimers.forEach(t => clearTimeout(t));
+      this.dicePopupTimers = [];
+
+      const cardEl = document.getElementById('active-dice-popup-card');
+      const targetEl = document.getElementById('top-dice-badge') || this.diceDisplayEl;
+      if (!cardEl || !targetEl) {
+        this.dicePopupLayerEl.classList.add('hidden');
+        return;
+      }
+
+      const cardRect = cardEl.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+      const dx = Math.round(
+        targetRect.left + targetRect.width / 2 - (cardRect.left + cardRect.width / 2)
+      );
+      const dy = Math.round(
+        targetRect.top + targetRect.height / 2 - (cardRect.top + cardRect.height / 2)
+      );
+
+      cardEl.style.setProperty('--fold-dx', `${dx}px`);
+      cardEl.style.setProperty('--fold-dy', `${dy}px`);
+      cardEl.classList.add('folding-to-topbar');
+
+      const finishTimer = setTimeout(() => {
+        this.dicePopupLayerEl.classList.add('hidden');
+        this.dicePopupLayerEl.innerHTML = '';
+        const badge = document.getElementById('top-dice-badge');
+        if (badge) {
+          badge.classList.remove('dice-landed-pulse');
+          void badge.offsetWidth;
+          badge.classList.add('dice-landed-pulse');
+        }
+      }, 420);
+      this.dicePopupTimers.push(finishTimer);
+    };
+
+    // Allow tapping the popup to fold it immediately
+    this.dicePopupLayerEl.onclick = () => foldToTopBar();
+
+    const holdTimer = setTimeout(foldToTopBar, 1250);
+    this.dicePopupTimers.push(holdTimer);
   }
 
   // =========================================================================
@@ -471,6 +569,11 @@ export class CatanUI {
     this.stationsContainerEl.querySelectorAll('[data-peek-player]').forEach(btn => {
       const startPeek = e => {
         e.preventDefault();
+        if (e.pointerId !== undefined && btn.setPointerCapture) {
+          try {
+            btn.setPointerCapture(e.pointerId);
+          } catch (_) {}
+        }
         const pid = Number(btn.dataset.peekPlayer);
         this.peekingPlayers.add(pid);
         this.syncPeekClasses();
@@ -484,9 +587,11 @@ export class CatanUI {
       };
       btn.addEventListener('pointerdown', startPeek);
       btn.addEventListener('pointerup', endPeek);
-      btn.addEventListener('pointerleave', endPeek);
+      btn.addEventListener('pointercancel', endPeek);
+      btn.addEventListener('lostpointercapture', endPeek);
       btn.addEventListener('touchstart', startPeek, { passive: false });
       btn.addEventListener('touchend', endPeek);
+      btn.addEventListener('touchcancel', endPeek);
     });
 
     // Bind Edge Trade Accept / Pass buttons
@@ -686,7 +791,7 @@ export class CatanUI {
           <div class="trade-res-header">
             <span class="trade-emoji">${RESOURCES[k].emoji}</span>
           </div>
-          <div class="trade- stepper-spacer"></div>
+          <div class="trade-have">${RESOURCES[k].name}</div>
           <div class="trade-stepper">
             <button type="button" data-trade-side="want" data-res="${k}" data-delta="-1" ${val <= 0 ? 'disabled' : ''}>−</button>
             <span class="trade-val ${val > 0 ? 'active-val-want' : ''}">${val}</span>

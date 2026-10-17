@@ -1,4 +1,4 @@
-const CACHE_NAME = 'catan-tabletop-v1';
+const CACHE_NAME = 'catan-tabletop-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -29,18 +29,16 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
+// Network-first with offline cache fallback so updates apply immediately when online
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      return (
-        cached ||
-        fetch(event.request).then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          return response;
-        })
-      );
-    })
+    fetch(event.request)
+      .then(response => {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });

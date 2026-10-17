@@ -26,6 +26,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: radial-gradient(circle at center, var(--bg-ocean-mid) 0%, var(--bg-ocean-deep) 100%);
   color: var(--text-main);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "SF Pro Display", "Segoe UI", Roboto, sans-serif;
@@ -635,6 +636,180 @@ button, input, select {
 }
 
 /* =========================================================================
+   CENTER DICE POP-UP & FOLD-TO-TOP-BAR ANIMATION
+   ========================================================================= */
+
+.dice-popup-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 35;
+  pointer-events: auto;
+}
+
+.dice-popup-card {
+  background: rgba(15, 23, 42, 0.96);
+  border: 2.5px solid #60a5fa;
+  border-radius: 22px;
+  padding: 16px 26px;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.75), 0 0 28px rgba(59, 130, 246, 0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  transform: translate(0, 0) scale(1);
+  opacity: 1;
+  animation: dicePopupEnter 0.28s cubic-bezier(0.18, 1.25, 0.4, 1);
+  will-change: transform, opacity;
+  cursor: pointer;
+}
+
+.dice-popup-card.popup-hot {
+  border-color: #f87171;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.8), 0 0 32px rgba(239, 68, 68, 0.45);
+}
+
+.dice-popup-card.popup-seven {
+  border-color: #fbbf24;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.8), 0 0 36px rgba(245, 158, 11, 0.5);
+}
+
+.dice-popup-card.folding-to-topbar {
+  transform: translate(var(--fold-dx, 0px), var(--fold-dy, -240px)) scale(0.16);
+  opacity: 0;
+  transition: transform 0.42s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.38s ease-in;
+}
+
+@keyframes dicePopupEnter {
+  0% {
+    transform: scale(0.45) translateY(24px);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes dieTumble1 {
+  0% { transform: rotate(-28deg) scale(0.75); }
+  50% { transform: rotate(14deg) scale(1.08); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+@keyframes dieTumble2 {
+  0% { transform: rotate(32deg) scale(0.75); }
+  50% { transform: rotate(-12deg) scale(1.08); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+.dice-popup-roller {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #cbd5e1;
+  letter-spacing: 0.02em;
+}
+
+.dice-popup-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.big-die-box {
+  width: 66px;
+  height: 66px;
+  background: linear-gradient(145deg, #ffffff, #e2e8f0);
+  color: #0f172a;
+  border: 2px solid #94a3b8;
+  border-radius: 14px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.4), inset 0 2px 3px rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.big-die-box.die-tumble-1 {
+  animation: dieTumble1 0.34s ease-out;
+}
+
+.big-die-box.die-tumble-2 {
+  animation: dieTumble2 0.36s ease-out;
+}
+
+.big-die-glyph {
+  font-size: 2.3rem;
+  line-height: 1;
+}
+
+.big-die-num {
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: #475569;
+  margin-top: -2px;
+}
+
+.big-die-plus,
+.big-die-equals {
+  font-size: 1.4rem;
+  font-weight: 900;
+  color: #94a3b8;
+}
+
+.big-sum-circle {
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: #1e293b;
+  border: 3px solid #60a5fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.85rem;
+  font-weight: 900;
+  color: #f8fafc;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.popup-hot .big-sum-circle {
+  background: #7f1d1d;
+  border-color: #f87171;
+  color: #fecaca;
+}
+
+.popup-seven .big-sum-circle {
+  background: #78350f;
+  border-color: #fbbf24;
+  color: #fde68a;
+}
+
+.dice-popup-payout {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: #f8fafc;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  padding: 5px 14px;
+  max-width: 82vw;
+  text-align: center;
+}
+
+@keyframes diceLandedBounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.28); box-shadow: 0 0 14px rgba(96, 165, 250, 0.8); }
+  100% { transform: scale(1); }
+}
+
+.dice-badge.dice-landed-pulse {
+  animation: diceLandedBounce 0.38s ease-out;
+}
+
+/* =========================================================================
    NON-BLOCKING TABLETOP TRADE COMPOSER
    ========================================================================= */
 
@@ -643,7 +818,8 @@ button, input, select {
   bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
-  width: min(640px, calc(100vw - 24px));
+  width: min(760px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
   background: rgba(15, 23, 42, 0.96);
   border: 2px solid #38bdf8;
   border-radius: 16px;
@@ -653,6 +829,7 @@ button, input, select {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow: hidden;
 }
 
 .trade-panel-header {
@@ -677,6 +854,7 @@ button, input, select {
 .trade-header-btns {
   display: flex;
   gap: 6px;
+  flex-shrink: 0;
 }
 
 .btn-trade-clear,
@@ -693,12 +871,14 @@ button, input, select {
 
 .trade-columns-wrap {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
   gap: 8px;
+  width: 100%;
 }
 
 .trade-side-box {
+  min-width: 0;
   background: rgba(30, 41, 59, 0.75);
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 10px;
@@ -714,14 +894,16 @@ button, input, select {
 
 .trade-res-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 4px;
 }
 
 .trade-res-col {
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: space-between;
   background: rgba(15, 23, 42, 0.7);
   border-radius: 8px;
   padding: 4px 2px;
@@ -731,40 +913,46 @@ button, input, select {
 .trade-res-header {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 2px;
+  min-height: 20px;
 }
 
 .trade-emoji {
-  font-size: 1.05rem;
+  font-size: 1.02rem;
 }
 
 .trade-port-tag {
-  font-size: 0.64rem;
+  font-size: 0.62rem;
   font-weight: 800;
   color: #93c5fd;
 }
 
 .trade-have {
-  font-size: 0.65rem;
+  font-size: 0.64rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .trade-stepper {
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  gap: 2px;
   margin-top: 2px;
+  width: 100%;
 }
 
 .trade-stepper button {
-  width: 22px;
+  width: 20px;
   height: 22px;
+  flex-shrink: 0;
   border-radius: 5px;
   border: 1px solid #475569;
   background: #334155;
   color: #fff;
   font-weight: 900;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   padding: 0;
   cursor: pointer;
 }
@@ -774,9 +962,9 @@ button, input, select {
 }
 
 .trade-val {
-  min-width: 14px;
+  min-width: 13px;
   text-align: center;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 800;
 }
 
@@ -789,9 +977,21 @@ button, input, select {
 }
 
 .trade-arrow-divider {
-  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
   color: #94a3b8;
   font-weight: 900;
+}
+
+@media (max-width: 700px) {
+  .trade-columns-wrap {
+    grid-template-columns: 1fr;
+  }
+  .trade-arrow-divider {
+    display: none;
+  }
 }
 
 .trade-footer-bar {

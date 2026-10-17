@@ -676,10 +676,9 @@ export class CatanGame {
       sum = d1 + d2;
     }
 
-    s.lastRoll = { d1, d2, sum };
-    s.diceStats[sum] = (s.diceStats[sum] || 0) + 1;
-
     const activePlayer = this.getPlayer();
+    const rollId = Date.now() + Math.random();
+    s.diceStats[sum] = (s.diceStats[sum] || 0) + 1;
 
     if (sum === 7) {
       this.addLog(`🎲 ${activePlayer.emoji} ${activePlayer.name} rolled a 7! (${d1} + ${d2})`);
@@ -704,9 +703,27 @@ export class CatanGame {
         s.discardState = discardState;
         s.phase = 'DISCARD_7';
         this.setBanner(`🎲 Rolled 7! Players with >7 cards: discard half on your edge card.`);
+        s.lastRoll = {
+          id: rollId,
+          d1,
+          d2,
+          sum,
+          rollerName: activePlayer.name,
+          rollerEmoji: activePlayer.emoji,
+          payoutText: '🏴‍☠️ Robber! Players with >7 cards discard half'
+        };
       } else {
         s.phase = 'MOVE_ROBBER';
         this.setBanner(`🎲 Rolled 7! ${activePlayer.emoji} ${activePlayer.name}: Tap a hex to move the Robber 🏴‍☠️`);
+        s.lastRoll = {
+          id: rollId,
+          d1,
+          d2,
+          sum,
+          rollerName: activePlayer.name,
+          rollerEmoji: activePlayer.emoji,
+          payoutText: '🏴‍☠️ Move the Robber!'
+        };
       }
     } else {
       // Distribute resources for matching hexes without Robber
@@ -740,8 +757,9 @@ export class CatanGame {
       }
 
       const rollStr = `🎲 Rolled ${sum} (${d1}+${d2})`;
+      const payoutText = summaryParts.length > 0 ? summaryParts.join(' · ') : 'No resources produced';
       if (summaryParts.length > 0) {
-        const summary = `${rollStr}: ${summaryParts.join(' · ')}`;
+        const summary = `${rollStr}: ${payoutText}`;
         this.addLog(summary);
         this.setBanner(summary);
       } else {
@@ -749,6 +767,15 @@ export class CatanGame {
         this.setBanner(`${rollStr} — No resources produced`);
       }
 
+      s.lastRoll = {
+        id: rollId,
+        d1,
+        d2,
+        sum,
+        rollerName: activePlayer.name,
+        rollerEmoji: activePlayer.emoji,
+        payoutText
+      };
       s.phase = 'MAIN_TURN';
     }
 
