@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Catan Table" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Catan Tabletop — Offline Pass-Free Edition</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div id="app-shell">
+    <!-- Top Utility Bar -->
+    <header id="top-bar">
+      <div class="brand-group">
+        <span class="brand-logo">🏝️ Catan Table</span>
+        <div id="dice-display"></div>
+      </div>
+
+      <div id="turn-banner" class="turn-banner"></div>
+
+      <div class="utility-btns">
+        <button type="button" class="btn-util" id="btn-undo" title="Undo last action">↩️ Undo</button>
+        <button type="button" class="btn-util" id="btn-rotate-seats" title="Toggle rotated edge cards for flat tabletop iPad play">🔄 Tabletop Seats</button>
+        <button type="button" class="btn-util" id="btn-stats-log" title="View Dice Histogram & Game Log">📊 Log & Stats</button>
+        <button type="button" class="btn-util" id="btn-new-game" title="Configure & start a new game">⚙️ New Game</button>
+      </div>
+    </header>
+
+    <!-- Main Tabletop Area: Center Hex Board + 4 Edge Player Stations -->
+    <main id="tabletop-stage">
+      <div id="board-viewport">
+        <svg
+          id="catan-board-svg"
+          viewBox="-315 -290 630 580"
+          preserveAspectRatio="xMidYMid meet"
+          aria-label="Catan Hex Board"
+        ></svg>
+      </div>
+
+      <!-- 4 Edge Player Stations (Bottom, Left, Top, Right) -->
+      <div id="player-stations"></div>
+
+      <!-- Non-Blocking Tabletop Trade Composer (Appears while keeping Edge Stations tappable!) -->
+      <section id="trade-composer" class="trade-composer hidden"></section>
+    </main>
+
+    <!-- Bottom Active Turn Dock -->
+    <footer id="action-bar"></footer>
+
+    <!-- Modal Overlay (Dev Cards, Stats/Log, New Game Setup) -->
+    <div id="modal-overlay" class="modal-overlay hidden">
+      <div id="modal-content" class="modal-card"></div>
+    </div>
+  </div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
